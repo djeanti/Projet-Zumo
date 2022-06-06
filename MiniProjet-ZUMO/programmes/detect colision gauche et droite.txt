@@ -1,0 +1,121 @@
+  /* This example uses the line sensors on the Zumo 32U4 to follow
+  a black line on a white background, using a PID-based algorithm.
+  It works decently on courses with smooth, 6" radius curves and
+  has been tested with Zumos using 75:1 HP motors.  Modifications
+  might be required for it to work well on different courses or
+  with different motors.
+
+  This demo requires a Zumo 32U4 Front Sensor Array to be
+  connected, and jumpers on the front sensor array must be
+  installed in order to connect pin 4 to DN4 and pin 20 to DN2. */
+
+  #include <Wire.h>
+  #include <Zumo32U4.h>
+  #include "gyro_use.h"
+  // This is the maximum speed the motors will be allowed to turn.
+  // A maxSpeed of 400 lets the motors go at top speed.  Decrease
+  // this value to impose a speed limit.
+  const uint16_t maxSpeed = 400;
+
+  Zumo32U4Buzzer buzzer;
+  Zumo32U4LineSensors lineSensors;
+  Zumo32U4Motors motors;
+  Zumo32U4ButtonA buttonA;
+  Zumo32U4LCD lcd;
+  Zumo32U4IMU imu;
+  Zumo32U4Encoders encode;
+
+  const int THRESHOLD = 5000;
+  const short TURNSPEED = 200; 
+  const unsigned short HALFTURNVAL = 1797;
+  const unsigned short QUARTTURNVAL = 788;
+  const unsigned short QUARTTURNVAL_lis = QUARTTURNVAL - 100;
+
+
+  void turncalibrate(short nbangle45) {
+    // sens trigo 1 sens trigo 0 inverse
+    const uint16_t calibrationSpeed = 160;
+    motors.setSpeeds(calibrationSpeed*(nbangle45>0 ? -1 :1) ,calibrationSpeed *(nbangle45>0 ? 1 :-1));
+    turnSensorReset();
+    while((nbangle45>=0 ? (int32_t)turnAngle < (turnAngle45 *nbangle45 ) : (int32_t)turnAngle >=(turnAngle45 *nbangle45 ))){
+      lineSensors.calibrate();
+      turnSensorUpdate();
+    }
+    motors.setSpeeds(0, 0);
+    turnSensorUpdate();
+    
+  }
+
+  void turnright(){
+    encode.getCountsAndResetLeft();
+    motors.setSpeeds(TURNSPEED,-TURNSPEED);
+    while(1){
+      if(encode.getCountsLeft() >= QUARTTURNVAL_lis){
+        motors.setSpeeds(75,-75);
+      }
+      if(encode.getCountsLeft() >= QUARTTURNVAL){
+        break;
+      }
+    }
+    motors.setSpeeds(0,0);
+  }
+
+  void turnleft(){
+    encode.getCountsAndResetRight();
+    motors.setSpeeds(-TURNSPEED,TURNSPEED);
+    while(1){
+      if(encode.getCountsRight() >= QUARTTURNVAL_lis){
+        motors.setSpeeds(-75,75);
+      }
+      if(encode.getCountsRight() >= QUARTTURNVAL){
+        break;
+      }
+    }
+    motors.setSpeeds(0,0);
+  }
+
+  unsigned char readaccelero(){
+    const unsigned char MAX_COUNTS = 50;
+    unsigned char leftside = 0,rightside = 0;
+    for(unsigned char i = 0; i < MAX_COUNTS; i++){
+      imu.readAcc();
+      leftside += (imu.a.y>THRESHOLD);
+      rightside += (imu.a.y<-THRESHOLD);
+    }
+
+    return ((leftside<MAX_COUNTS/2) && (rightside<MAX_COUNTS/2))? 0: ( (leftside>rightside)? 1:2 );
+  }
+
+  void setup()
+  {
+    Wire.begin();
+
+    if (!imu.init())
+    {
+      // Failed to detect the compass.
+      ledRed(1);
+      while(1)
+      {
+        Serial.println(F("Failed to initialize IMU sensors."));
+        delay(100);
+      }
+    }
+
+    imu.enableDefault();
+    
+    
+  }
+
+  void loop()
+  {
+    switch(readaccelero()){
+      case 1:
+        buzzer.play("L16 e");
+        turnleft();
+        break;
+      case 2:
+        buzzer.play("L16 g");
+        turnright();
+        break;
+    }
+  }
